@@ -18,7 +18,13 @@ class Rotation(SQLModel, table=True):
             index=True,
         ),
     )
-    lote_nome: str = Field(max_length=120)
+    lote_id: int = Field(
+        sa_column=Column(
+            ForeignKey("lotes.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+    )
     data_inicio: datetime = Field(nullable=False, index=True)
     data_fim: datetime | None = Field(default=None, nullable=True)
     notas: str | None = Field(default=None)

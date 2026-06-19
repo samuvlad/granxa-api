@@ -1,6 +1,8 @@
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.lote import LoteSummary
 
 
 VALID_SEXO = {"macho", "femia"}
@@ -16,12 +18,19 @@ class SheepBase(BaseModel):
     estado: str = "activo"
     nai_id: int | None = None
     pai_id: int | None = None
-    parcela_actual_id: int | None = None
+    lote_id: int | None = None
     notas: str | None = None
 
 
 class SheepCreate(SheepBase):
-    pass
+    parcela_actual_id: int | None = Field(
+        default=None,
+        deprecated=True,
+        description=(
+            "Deprecated: o backend ignora este campo. A parcela actual derivase "
+            "automaticamente da rotación activa do lote."
+        ),
+    )
 
 
 class SheepUpdate(BaseModel):
@@ -33,11 +42,21 @@ class SheepUpdate(BaseModel):
     estado: str | None = None
     nai_id: int | None = None
     pai_id: int | None = None
-    parcela_actual_id: int | None = None
+    lote_id: int | None = None
+    parcela_actual_id: int | None = Field(
+        default=None,
+        deprecated=True,
+        description=(
+            "Deprecated: o backend ignora este campo. A parcela actual derivase "
+            "automaticamente da rotación activa do lote."
+        ),
+    )
     notas: str | None = None
 
 
 class SheepRead(SheepBase):
     id: int
+    parcela_actual_id: int | None = None
+    lote: LoteSummary | None = None
     created_at: str
     updated_at: str

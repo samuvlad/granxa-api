@@ -1,11 +1,13 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session, select
 
 from app.database import get_session
-from app.models import Plot, Sheep
+from app.models import Lote, Plot, Sheep
+from app.schemas.lote import LoteSummary
 from app.schemas.sheep import (
     VALID_ESTADO,
     VALID_SEXO,
@@ -13,11 +15,25 @@ from app.schemas.sheep import (
     SheepRead,
     SheepUpdate,
 )
+from app.services.lotes import derive_parcela_for_lote, recompute_parcela_actual_for_lote
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sheep", tags=["sheep"])
 
 
-def sheep_to_read(sheep: Sheep) -> SheepRead:
+def _lote_summary(session: Session, lote_id: int | None) -> LoteSummary | None:
+    if lote_id is None:
+        return None
+    lote = session.get(Lote, lote_id)
+    if not lote:
+        return None
+    return LoteSummary(id=lote.id, name=lote.name)
+
+
+def sheep_to_read(session: Session, sheep: Sheep) -> SheepRead:
+    parcela_actual_id = derive_parcela_for_lote(session, sheep.lote_id)
     return SheepRead(
         id=sheep.id,
         crotal=sheep.crotal,
@@ -28,7 +44,9 @@ def sheep_to_read(sheep: Sheep) -> SheepRead:
         estado=sheep.estado,
         nai_id=sheep.nai_id,
         pai_id=sheep.pai_id,
-        parcela_actual_id=sheep.parcela_actual_id,
+        lote_id=sheep.lote_id,
+        parcela_actual_id=parcela_actual_id,
+        lote=_lote_summary(session, sheep.lote_id),
         notas=sheep.notas,
         created_at=sheep.created_at.isoformat(),
         updated_at=sheep.updated_at.isoformat(),
@@ -59,20 +77,26 @@ def _validate_parent(
         )
 
 
-def _validate_plot(session: Session, plot_id: int | None) -> None:
-    if plot_id is None:
+def _validate_lote(session: Session, lote_id: int | None) -> None:
+    if lote_id is None:
         return
-    if not session.get(Plot, plot_id):
+    if not session.get(Lote, lote_id):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="A parcela non existe",
+            detail="O lote non existe",
         )
 
 
 @router.get("/", response_model=list[SheepRead])
-def list_sheep(session: Session = Depends(get_session)) -> list[SheepRead]:
-    sheep = session.exec(select(Sheep).order_by(Sheep.id)).all()
-    return [sheep_to_read(s) for s in sheep]
+def list_sheep(
+    lote_id: int | None = Query(default=None, description="Filtrar por lote"),
+    session: Session = Depends(get_session),
+) -> list[SheepRead]:
+    stmt = select(Sheep).order_by(Sheep.id)
+    if lote_id is not None:
+        stmt = stmt.where(Sheep.lote_id == lote_id)
+    sheep_list = session.exec(stmt).all()
+    return [sheep_to_read(session, s) for s in sheep_list]
 
 
 @router.post("/", response_model=SheepRead, status_code=status.HTTP_201_CREATED)
@@ -105,7 +129,15 @@ def create_sheep(
 
     _validate_parent(session, 0, payload.nai_id, "nai")
     _validate_parent(session, 0, payload.pai_id, "pai")
-    _validate_plot(session, payload.parcela_actual_id)
+    _validate_lote(session, payload.lote_id)
+
+    if "parcela_actual_id" in payload.model_fields_set and payload.parcela_actual_id is not None:
+        logger.warning(
+            "Ignorando parcela_actual_id=%s en POST /sheep/: dérivase do lote",
+            payload.parcela_actual_id,
+        )
+
+    parcela_actual_id = derive_parcela_for_lote(session, payload.lote_id)
 
     sheep = Sheep(
         crotal=crotal,
@@ -116,13 +148,14 @@ def create_sheep(
         estado=payload.estado,
         nai_id=payload.nai_id,
         pai_id=payload.pai_id,
-        parcela_actual_id=payload.parcela_actual_id,
+        lote_id=payload.lote_id,
+        parcela_actual_id=parcela_actual_id,
         notas=payload.notas,
     )
     session.add(sheep)
     session.commit()
     session.refresh(sheep)
-    return sheep_to_read(sheep)
+    return sheep_to_read(session, sheep)
 
 
 @router.get("/{sheep_id}", response_model=SheepRead)
@@ -132,7 +165,7 @@ def get_sheep(sheep_id: int, session: Session = Depends(get_session)) -> SheepRe
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Ovella non atopada"
         )
-    return sheep_to_read(sheep)
+    return sheep_to_read(session, sheep)
 
 
 @router.patch("/{sheep_id}", response_model=SheepRead)
@@ -146,6 +179,13 @@ def update_sheep(
         )
 
     data = payload.model_dump(exclude_unset=True)
+
+    if "parcela_actual_id" in data:
+        logger.warning(
+            "Ignorando parcela_actual_id=%s en PATCH /sheep/%d: dérivase do lote",
+            data.pop("parcela_actual_id"),
+            sheep_id,
+        )
 
     if "sexo" in data and data["sexo"] not in VALID_SEXO:
         raise HTTPException(
@@ -179,16 +219,29 @@ def update_sheep(
         _validate_parent(session, sheep_id, data["nai_id"], "nai")
     if "pai_id" in data:
         _validate_parent(session, sheep_id, data["pai_id"], "pai")
-    if "parcela_actual_id" in data:
-        _validate_plot(session, data["parcela_actual_id"])
+    if "lote_id" in data:
+        _validate_lote(session, data["lote_id"])
+
+    previous_lote_id = sheep.lote_id
+    new_lote_id = data.get("lote_id", previous_lote_id)
 
     for key, value in data.items():
         setattr(sheep, key, value)
     sheep.updated_at = datetime.now(timezone.utc)
+
+    lote_changed = previous_lote_id != sheep.lote_id
+    if lote_changed:
+        if previous_lote_id is not None:
+            recompute_parcela_actual_for_lote(session, previous_lote_id)
+        if sheep.lote_id is not None:
+            sheep.parcela_actual_id = derive_parcela_for_lote(session, sheep.lote_id)
+        else:
+            sheep.parcela_actual_id = None
+
     session.add(sheep)
     session.commit()
     session.refresh(sheep)
-    return sheep_to_read(sheep)
+    return sheep_to_read(session, sheep)
 
 
 @router.delete("/{sheep_id}")
@@ -200,6 +253,7 @@ def delete_sheep(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Ovella non atopada"
         )
+    lote_id = sheep.lote_id
     session.delete(sheep)
     session.commit()
     return {"ok": True}

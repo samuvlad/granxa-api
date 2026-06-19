@@ -1,11 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.lote import LoteSummary
 
 
 class RotationBase(BaseModel):
     parcela_id: int
-    lote_nome: str
+    lote_id: int
     data_inicio: datetime
     data_fim: datetime | None = None
     notas: str | None = None
@@ -17,7 +19,7 @@ class RotationCreate(RotationBase):
 
 class RotationUpdate(BaseModel):
     parcela_id: int | None = None
-    lote_nome: str | None = None
+    lote_id: int | None = None
     data_inicio: datetime | None = None
     data_fim: datetime | None = None
     notas: str | None = None
@@ -25,5 +27,6 @@ class RotationUpdate(BaseModel):
 
 class RotationRead(RotationBase):
     id: int
+    lote: LoteSummary | None = None
     created_at: str
     updated_at: str

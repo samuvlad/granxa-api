@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import init_db
+from app.routers.lotes import router as lotes_router
 from app.routers.plots import router as plots_router
 from app.routers.rotation import router as rotations_router
 from app.routers.sheep import router as sheep_router
@@ -11,7 +11,15 @@ from app.routers.sheep import router as sheep_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # As táboas xestiónanse con Alembic (ver alembic/versions/).
+    # En desenvolvemento pódese activar INIT_DB=1 no .env para usar
+    # SQLModel.metadata.create_all como atallo.
+    import os
+
+    if os.getenv("INIT_DB") == "1":
+        from app.database import init_db
+
+        init_db()
     yield
 
 
@@ -33,6 +41,7 @@ app.add_middleware(
 app.include_router(plots_router)
 app.include_router(sheep_router)
 app.include_router(rotations_router)
+app.include_router(lotes_router)
 
 
 @app.get("/health")

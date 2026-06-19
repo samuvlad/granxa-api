@@ -34,6 +34,14 @@ class Sheep(SQLModel, table=True):
             nullable=True,
         ),
     )
+    lote_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("lotes.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
     parcela_actual_id: int | None = Field(
         default=None,
         sa_column=Column(
