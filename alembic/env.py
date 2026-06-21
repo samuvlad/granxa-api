@@ -7,7 +7,7 @@ from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 from app.config import settings
-from app.models import Plot, Rotation, Sheep  # noqa: F401  (ensure models are registered)
+from app.models import Lote, Plot, Rotation, Sheep  # noqa: F401  (ensure models are registered)
 
 
 config = context.config
