@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: granxa
       POSTGRES_DB: granxa_maps
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - granxa-maps-data:/var/lib/postgresql/data
     healthcheck:
@@ -15,6 +15,22 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  api:
+    build: .
+    container_name: granxa-maps-api
+    environment:
+      DATABASE_URL: postgresql+psycopg2://granxa:granxa@db:5432/granxa_maps
+    depends_on:
+      db:
+        condition: service_healthy
+    dns:
+      - 127.0.0.11
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    command: ["bash", "/app/entrypoint.sh"]
 
 volumes:
   granxa-maps-data:

@@ -2,24 +2,51 @@
 
 API en FastAPI para xestión de parcelas, lotes e gando con PostgreSQL/PostGIS.
 
-## Requisitos
+## Quickstart (recomendado — Docker)
 
-- Python 3.11+
-- Docker + Docker Compose
-
-## Levantar a base de datos
+Só necesitas Docker. Noutro PC, clona e:
 
 ```bash
-docker compose up -d
+docker compose up --build
 ```
 
-## Instalación
+Iso levanta:
+
+- PostgreSQL/PostGIS en `localhost:5433`
+- API en `http://localhost:8000` (Swagger en `/docs`)
+
+As migracións de Alembic aplícanse automaticamente ao arrancar o contedor
+(`alembic upgrade head` no `entrypoint.sh`). O código móntase como volume,
+así que os cambios recargan con `--reload` sen necesidade de rebuild.
+
+Atallos con `make`:
+
+```bash
+make up        # docker compose up --build
+make down      # docker compose down
+make logs      # logs en seguimento
+make shell     # bash dentro do contedor da API
+make migrate   # aplicar migracións
+make test      # correr pytest
+make clean     # parar e borrar volumes (DB incluída)
+```
+
+## Desenvolvemento local sen Docker
+
+Se prefires correr a API no teu Python local:
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
+
+# Noutro terminal, levanta só a DB:
+docker compose up -d db
+
+# Migracións + API:
+alembic upgrade head
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## Migracións (Alembic)
@@ -36,14 +63,6 @@ En desenvolvemento tamén se pode usar `INIT_DB=1` no `.env` para que o
 `lifespan` da app cree as táboas automaticamente con
 `SQLModel.metadata.create_all` (útil para tinkering rápido; non usar en
 producción).
-
-## Executar
-
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-A API estará dispoñible en `http://localhost:8000`.
 
 ## Documentación
 
