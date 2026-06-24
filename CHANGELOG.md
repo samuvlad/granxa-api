@@ -1,5 +1,40 @@
 # Changelog — API
 
+## v0.3.0 — Prefix `/api` nas rutas e rede Docker externa
+
+### Resumo
+
+- Todos os endpoints da API pasan a estar baixo o prefix `/api`
+  (incluído o endpoint de saúde, que pasa de `/health` a `/api/health`).
+- O contedor da API únese á rede Docker externa `granxa-net` para
+  comunicarse con outros servizos do mesmo ecosistema.
+
+### Breaking changes
+
+- **Rutas**: calquera cliente que consumise `/plots/`, `/sheep/`,
+  `/rotations/`, `/lotes/` ou `/health` debe actualizar as URLs a
+  `/api/plots/`, `/api/sheep/`, `/api/rotations/`, `/api/lotes/` e
+  `/api/health` respectivamente.
+- **Tests de integración**: a suite de tests segue usando as rutas sen
+  prefix e **necesita actualizarse** antes de poder executarse
+  correctamente. Substituír:
+  - `client.get("/health")` → `client.get("/api/health")`
+  - `client.get/post/patch/delete("/plots/...")` → `client.*("/api/plots/...")`
+  - `client.get/post/patch/delete("/sheep/...")` → `client.*("/api/sheep/...")`
+  - `client.get/post/patch/delete("/rotations/...")` → `client.*("/api/rotations/...")`
+  - `client.get/post/patch/delete("/lotes/...")` → `client.*("/api/lotes/...")`
+
+### Infraestrutura
+
+- `docker-compose.yml` declara a rede externa `granxa-net`. Créaa no
+  host antes do primeiro `docker compose up`:
+
+  ```bash
+  docker network create granxa-net
+  ```
+
+  Se non, o servizo `api` non arrancará.
+
 ## v0.2.0 — Asignación de ovellas a lotes
 
 ### Resumo

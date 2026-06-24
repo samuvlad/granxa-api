@@ -30,7 +30,14 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+    networks:
+      - default
+      - granxa-net
     command: ["bash", "/app/entrypoint.sh"]
 
 volumes:
   granxa-maps-data:
+
+networks:
+  granxa-net:
+    external: true

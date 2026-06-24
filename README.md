@@ -81,13 +81,28 @@ configuración `DATABASE_URL` por defecto.
 
 ## Endpoints principais
 
-| Recurso   | Prefix       |
-|-----------|--------------|
-| Parcelas  | `/plots/`    |
-| Ovellas   | `/sheep/`    |
-| Rotacións | `/rotations/`|
-| Lotes     | `/lotes/`    |
-| Saúde     | `/health`    |
+Todas as rutas da API van baixo o prefix `/api`.
+
+| Recurso   | Prefix           |
+|-----------|------------------|
+| Parcelas  | `/api/plots/`    |
+| Ovellas   | `/api/sheep/`    |
+| Rotacións | `/api/rotations/`|
+| Lotes     | `/api/lotes/`    |
+| Saúde     | `/api/health`    |
+
+## Rede Docker externa
+
+O contedor da API únese á rede externa `granxa-net` para poder
+comunicarse con outros servizos do mesmo ecosistema (por exemplo, un
+proxy inverso ou servizos complementarios que vivan nesa rede). Antes
+de levantar a API por primeira vez, créaa no host:
+
+```bash
+docker network create granxa-net
+```
+
+Se non existe, `docker compose up` fallará ao iniciar o servizo `api`.
 
 ## Changelog
 

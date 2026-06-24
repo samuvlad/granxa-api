@@ -37,12 +37,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(plots_router)
-app.include_router(sheep_router)
-app.include_router(rotations_router)
-app.include_router(lotes_router)
+app.include_router(plots_router, prefix="/api")
+app.include_router(sheep_router, prefix="/api")
+app.include_router(rotations_router, prefix="/api")
+app.include_router(lotes_router, prefix="/api")
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
