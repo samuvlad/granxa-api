@@ -103,7 +103,3 @@ docker network create granxa-net
 ```
 
 Se non existe, `docker compose up` fallará ao iniciar o servizo `api`.
-
-## Changelog
-
-Ver [`CHANGELOG.md`](./CHANGELOG.md).

@@ -42,7 +42,7 @@ def test_parcela_actual_derived_from_active_rotation(client: TestClient) -> None
     assert sheep["parcela_actual_id"] == plot["id"]
 
     # Ao recuperar a ovella, a parcela segue a ser a da rotación activa.
-    res = client.get(f"/sheep/{sheep['id']}")
+    res = client.get(f"/api/sheep/{sheep['id']}")
     assert res.status_code == 200
     assert res.json()["parcela_actual_id"] == plot["id"]
 
@@ -63,13 +63,13 @@ def test_parcela_actual_recomputed_on_rotation_close(client: TestClient) -> None
 
     # Pechar a rotación activa.
     res = client.patch(
-        f"/rotations/{rot1['id']}", json={"data_fim": "2026-02-01T00:00:00"}
+        f"/api/rotations/{rot1['id']}", json={"data_fim": "2026-02-01T00:00:00"}
     )
     assert res.status_code == 200
-    assert res.json()["data_fim"] == "2026-02-01T00:00:00"
+    assert res.json()["data_fim"].startswith("2026-02-01T00:00:00")
 
     # Sen outra rotación activa, a parcela da ovella debe pasar a NULL.
-    res = client.get(f"/sheep/{sheep['id']}")
+    res = client.get(f"/api/sheep/{sheep['id']}")
     assert res.json()["parcela_actual_id"] is None
 
     # Crear unha nova rotación activa en P2: a ovella debe recoller a nova.
@@ -79,22 +79,22 @@ def test_parcela_actual_recomputed_on_rotation_close(client: TestClient) -> None
         lote_id=lote["id"],
         data_inicio="2026-03-01T00:00:00",
     )
-    res = client.get(f"/sheep/{sheep['id']}")
+    res = client.get(f"/api/sheep/{sheep['id']}")
     assert res.json()["parcela_actual_id"] == p2["id"]
 
 
-def test_parcela_actual_promoted_to_next_active_on_close(
-    client: TestClient,
-) -> None:
+def test_parcela_actual_follows_active_rotation(client: TestClient) -> None:
     p1 = make_plot_via_api(client, "P1")
     p2 = make_plot_via_api(client, "P2")
     lote = make_lote_via_api(client, "Lote")
 
-    rot1 = make_rotation_via_api(
+    # Rotación pechada en P1, logo rotación activa en P2.
+    make_rotation_via_api(
         client,
         parcela_id=p1["id"],
         lote_id=lote["id"],
         data_inicio="2026-01-01T00:00:00",
+        data_fim="2026-01-31T00:00:00",
     )
     rot2 = make_rotation_via_api(
         client,
@@ -103,16 +103,17 @@ def test_parcela_actual_promoted_to_next_active_on_close(
         data_inicio="2026-02-01T00:00:00",
     )
     sheep = make_sheep_via_api(client, "ES-TEST-5", lote_id=lote["id"])
-    # A activa é a máis recente, p2.
+    # A activa é p2.
     assert sheep["parcela_actual_id"] == p2["id"]
 
-    # Pechar a activa: a ovella debe pasar a p1 (a outra rotación do lote).
+    # Pechar a activa: non hai outra activa, a parcela pasa a NULL
+    # (a rotación anterior en p1 está pechada, non conta).
     res = client.patch(
-        f"/rotations/{rot2['id']}", json={"data_fim": "2026-02-15T00:00:00"}
+        f"/api/rotations/{rot2['id']}", json={"data_fim": "2026-02-15T00:00:00"}
     )
     assert res.status_code == 200
-    res = client.get(f"/sheep/{sheep['id']}")
-    assert res.json()["parcela_actual_id"] == p1["id"]
+    res = client.get(f"/api/sheep/{sheep['id']}")
+    assert res.json()["parcela_actual_id"] is None
 
 
 def test_patch_sheep_to_assign_lote(client: TestClient) -> None:
@@ -127,7 +128,7 @@ def test_patch_sheep_to_assign_lote(client: TestClient) -> None:
     sheep = make_sheep_via_api(client, "ES-TEST-6")
     assert sheep["parcela_actual_id"] is None
 
-    res = client.patch(f"/sheep/{sheep['id']}", json={"lote_id": lote["id"]})
+    res = client.patch(f"/api/sheep/{sheep['id']}", json={"lote_id": lote["id"]})
     assert res.status_code == 200
     assert res.json()["lote_id"] == lote["id"]
     assert res.json()["parcela_actual_id"] == plot["id"]
@@ -156,7 +157,7 @@ def test_patch_sheep_change_lote_recomputes_both(
     sheep = make_sheep_via_api(client, "ES-TEST-7", lote_id=l1["id"])
     assert sheep["parcela_actual_id"] == p1["id"]
 
-    res = client.patch(f"/sheep/{sheep['id']}", json={"lote_id": l2["id"]})
+    res = client.patch(f"/api/sheep/{sheep['id']}", json={"lote_id": l2["id"]})
     assert res.status_code == 200
     body = res.json()
     assert body["lote_id"] == l2["id"]
@@ -174,7 +175,7 @@ def test_parcela_actual_id_input_is_ignored(client: TestClient) -> None:
         data_inicio="2026-01-01T00:00:00",
     )
     res = client.post(
-        "/sheep/",
+        "/api/sheep/",
         json={
             "crotal": "ES-TEST-8",
             "sexo": "femia",
@@ -199,7 +200,7 @@ def test_parcela_actual_id_patch_ignored(client: TestClient) -> None:
     )
     sheep = make_sheep_via_api(client, "ES-TEST-9", lote_id=lote["id"])
     res = client.patch(
-        f"/sheep/{sheep['id']}", json={"parcela_actual_id": 9999}
+        f"/api/sheep/{sheep['id']}", json={"parcela_actual_id": 9999}
     )
     assert res.status_code == 200
     assert res.json()["parcela_actual_id"] == plot["id"]
@@ -212,12 +213,12 @@ def test_filter_sheep_by_lote_id(client: TestClient) -> None:
     make_sheep_via_api(client, "ES-B", lote_id=l1["id"])
     make_sheep_via_api(client, "ES-C", lote_id=l2["id"])
 
-    res = client.get(f"/sheep/?lote_id={l1['id']}")
+    res = client.get(f"/api/sheep/?lote_id={l1['id']}")
     assert res.status_code == 200
     crotales = sorted(s["crotal"] for s in res.json())
     assert crotales == ["ES-A", "ES-B"]
 
-    res = client.get(f"/sheep/?lote_id={l2['id']}")
+    res = client.get(f"/api/sheep/?lote_id={l2['id']}")
     crotales = [s["crotal"] for s in res.json()]
     assert crotales == ["ES-C"]
 
@@ -227,7 +228,7 @@ def test_list_sheep_of_lote(client: TestClient) -> None:
     make_sheep_via_api(client, "ES-A", lote_id=l1["id"])
     make_sheep_via_api(client, "ES-B", lote_id=l1["id"])
 
-    res = client.get(f"/lotes/{l1['id']}/sheep")
+    res = client.get(f"/api/lotes/{l1['id']}/sheep")
     assert res.status_code == 200
     crotales = sorted(s["crotal"] for s in res.json())
     assert crotales == ["ES-A", "ES-B"]
@@ -235,7 +236,7 @@ def test_list_sheep_of_lote(client: TestClient) -> None:
 
 def test_create_sheep_with_invalid_lote_422(client: TestClient) -> None:
     res = client.post(
-        "/sheep/",
+        "/api/sheep/",
         json={
             "crotal": "ES-BAD",
             "sexo": "femia",

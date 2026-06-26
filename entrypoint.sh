@@ -24,8 +24,12 @@ print("[entrypoint] Database not ready after 60s", file=sys.stderr)
 sys.exit(1)
 PY
 
-echo "[entrypoint] Running migrations..."
-alembic upgrade head
+if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
+    echo "[entrypoint] Running migrations..."
+    alembic upgrade head
+else
+    echo "[entrypoint] Skipping migrations (RUN_MIGRATIONS!=1)"
+fi
 
 echo "[entrypoint] Starting API..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

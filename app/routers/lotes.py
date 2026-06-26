@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.database import get_session
@@ -7,6 +8,21 @@ from app.schemas.lote import LoteCreate, LoteRead, LoteUpdate
 from app.schemas.sheep import SheepRead
 
 router = APIRouter(prefix="/lotes", tags=["lotes"])
+
+
+def _handle_integrity_error(exc: IntegrityError) -> None:
+    orig = exc.orig
+    constraint = getattr(getattr(orig, "diag", None), "constraint_name", None) or ""
+    msg = str(getattr(orig, "message", str(getattr(orig, "args", [""])[0]))).lower()
+    if constraint == "uq_lotes_name" or "uq_lotes_name" in msg or "lotes_name_key" in msg:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Xa existe un lote con ese nome",
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Violación de integridade: " + str(getattr(orig, "args", ["?"])[0]),
+    ) from exc
 
 
 def lote_to_read(lote: Lote) -> LoteRead:
@@ -44,7 +60,11 @@ def create_lote(
 
     lote = Lote(name=name, notas=payload.notas)
     session.add(lote)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        _handle_integrity_error(exc)
     session.refresh(lote)
     return lote_to_read(lote)
 
@@ -106,7 +126,11 @@ def update_lote(
     for key, value in data.items():
         setattr(lote, key, value)
     session.add(lote)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        _handle_integrity_error(exc)
     session.refresh(lote)
     return lote_to_read(lote)
 

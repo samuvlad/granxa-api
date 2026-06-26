@@ -1,8 +1,16 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, field_validator
 
 from app.schemas.lote import LoteSummary
+
+
+def _to_utc(value: datetime) -> datetime:
+    """Normaliza un datetime a UTC; se é tz-naive asúmese UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class RotationBase(BaseModel):
@@ -11,6 +19,11 @@ class RotationBase(BaseModel):
     data_inicio: datetime
     data_fim: datetime | None = None
     notas: str | None = None
+
+    @field_validator("data_inicio", "data_fim", mode="after")
+    @classmethod
+    def _normalize_dt(cls, v: datetime | None) -> datetime | None:
+        return _to_utc(v) if v is not None else None
 
 
 class RotationCreate(RotationBase):
@@ -24,9 +37,19 @@ class RotationUpdate(BaseModel):
     data_fim: datetime | None = None
     notas: str | None = None
 
+    @field_validator("data_inicio", "data_fim", mode="after")
+    @classmethod
+    def _normalize_dt(cls, v: datetime | None) -> datetime | None:
+        return _to_utc(v) if v is not None else None
 
-class RotationRead(RotationBase):
+
+class RotationRead(BaseModel):
     id: int
+    parcela_id: int
+    lote_id: int
+    data_inicio: datetime
+    data_fim: datetime | None = None
+    notas: str | None = None
     lote: LoteSummary | None = None
     created_at: str
     updated_at: str

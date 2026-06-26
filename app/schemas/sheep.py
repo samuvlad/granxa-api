@@ -23,14 +23,7 @@ class SheepBase(BaseModel):
 
 
 class SheepCreate(SheepBase):
-    parcela_actual_id: int | None = Field(
-        default=None,
-        deprecated=True,
-        description=(
-            "Deprecated: o backend ignora este campo. A parcela actual derivase "
-            "automaticamente da rotación activa do lote."
-        ),
-    )
+    pass
 
 
 class SheepUpdate(BaseModel):
@@ -43,14 +36,6 @@ class SheepUpdate(BaseModel):
     nai_id: int | None = None
     pai_id: int | None = None
     lote_id: int | None = None
-    parcela_actual_id: int | None = Field(
-        default=None,
-        deprecated=True,
-        description=(
-            "Deprecated: o backend ignora este campo. A parcela actual derivase "
-            "automaticamente da rotación activa do lote."
-        ),
-    )
     notas: str | None = None
 
 

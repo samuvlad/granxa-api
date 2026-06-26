@@ -32,7 +32,7 @@ def make_plot_via_api(
     geometry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     res = client.post(
-        "/plots/",
+        "/api/plots/",
         json={
             "name": name,
             "geometry": geometry or SAMPLE_GEOMETRY,
@@ -47,7 +47,7 @@ def make_lote_via_api(
     name: str,
     notas: str | None = None,
 ) -> dict[str, Any]:
-    res = client.post("/lotes/", json={"name": name, "notas": notas})
+    res = client.post("/api/lotes/", json={"name": name, "notas": notas})
     assert res.status_code == 201, res.text
     return res.json()
 
@@ -72,7 +72,7 @@ def make_sheep_via_api(
         payload["nome"] = nome
     if lote_id is not None:
         payload["lote_id"] = lote_id
-    res = client.post("/sheep/", json=payload)
+    res = client.post("/api/sheep/", json=payload)
     assert res.status_code == 201, res.text
     return res.json()
 
@@ -91,6 +91,6 @@ def make_rotation_via_api(
     }
     if data_fim is not None:
         payload["data_fim"] = data_fim
-    res = client.post("/rotations/", json=payload)
+    res = client.post("/api/rotations/", json=payload)
     assert res.status_code == 201, res.text
     return res.json()

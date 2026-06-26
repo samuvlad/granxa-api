@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.database import get_session
@@ -11,9 +11,6 @@ from app.schemas.rotation import (
     RotationCreate,
     RotationRead,
     RotationUpdate,
-)
-from app.services.lotes import (
-    recompute_parcela_actual_for_lote,
 )
 
 router = APIRouter(prefix="/rotations", tags=["rotations"])
@@ -40,7 +37,7 @@ def rotation_to_read(session: Session, rotation: Rotation) -> RotationRead:
     )
 
 
-def _check_dates(data_inicio: datetime, data_fim: datetime | None) -> None:
+def _check_dates(data_inicio: Any, data_fim: Any) -> None:
     if data_fim is not None and data_fim < data_inicio:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -48,12 +45,52 @@ def _check_dates(data_inicio: datetime, data_fim: datetime | None) -> None:
         )
 
 
+def _handle_integrity_error(exc: IntegrityError) -> None:
+    """Converte violacións de constraint da BD en respostas HTTP axeitadas."""
+    orig = exc.orig
+    msg = str(getattr(orig, "diag", getattr(orig, "message", ""))).lower()
+    constraint = getattr(getattr(orig, "diag", None), "constraint_name", None) or ""
+
+    if constraint == "uq_rotations_active_per_lote" or "uq_rotations_active_per_lote" in msg:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Xa existe unha rotación activa para este lote",
+        ) from exc
+    if constraint == "excl_rotations_lote_overlap" or "excl_rotations_lote_overlap" in msg:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A rotación solápase con outra do mesmo lote",
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Violación de integridade: " + str(getattr(orig, "args", ["?"])[0]),
+    ) from exc
+
+
 @router.get("/", response_model=list[RotationRead])
 def list_rotations(session: Session = Depends(get_session)) -> list[RotationRead]:
-    rotations = session.exec(
-        select(Rotation).order_by(Rotation.data_inicio.desc(), Rotation.id.desc())
-    ).all()
-    return [rotation_to_read(session, r) for r in rotations]
+    stmt = (
+        select(Rotation, Lote)
+        .outerjoin(Lote, Rotation.lote_id == Lote.id)
+        .order_by(Rotation.data_inicio.desc(), Rotation.id.desc())
+    )
+    rows = session.exec(stmt).all()
+    result: list[RotationRead] = []
+    for rotation, lote in rows:
+        result.append(
+            RotationRead(
+                id=rotation.id,
+                parcela_id=rotation.parcela_id,
+                lote_id=rotation.lote_id,
+                data_inicio=rotation.data_inicio,
+                data_fim=rotation.data_fim,
+                notas=rotation.notas,
+                lote=LoteSummary(id=lote.id, name=lote.name) if lote else None,
+                created_at=rotation.created_at.isoformat(),
+                updated_at=rotation.updated_at.isoformat(),
+            )
+        )
+    return result
 
 
 @router.post("/", response_model=RotationRead, status_code=status.HTTP_201_CREATED)
@@ -80,13 +117,12 @@ def create_rotation(
         notas=payload.notas,
     )
     session.add(rotation)
-    session.commit()
-    session.refresh(rotation)
-
-    if rotation.data_fim is None:
-        recompute_parcela_actual_for_lote(session, rotation.lote_id)
+    try:
         session.commit()
-
+    except IntegrityError as exc:
+        session.rollback()
+        _handle_integrity_error(exc)
+    session.refresh(rotation)
     return rotation_to_read(session, rotation)
 
 
@@ -132,26 +168,15 @@ def update_rotation(
 
     _check_dates(new_inicio, new_fim)
 
-    previous_lote_id = rotation.lote_id
-    previous_fim = rotation.data_fim
-
     for key, value in data.items():
         setattr(rotation, key, value)
-    rotation.updated_at = datetime.now(timezone.utc)
     session.add(rotation)
-    session.commit()
-    session.refresh(rotation)
-
-    became_active = previous_fim is not None and rotation.data_fim is None
-    became_closed = previous_fim is None and rotation.data_fim is not None
-    lote_changed = previous_lote_id != rotation.lote_id
-
-    if became_active or became_closed or lote_changed:
-        if lote_changed:
-            recompute_parcela_actual_for_lote(session, previous_lote_id)
-        recompute_parcela_actual_for_lote(session, rotation.lote_id)
+    try:
         session.commit()
-
+    except IntegrityError as exc:
+        session.rollback()
+        _handle_integrity_error(exc)
+    session.refresh(rotation)
     return rotation_to_read(session, rotation)
 
 
@@ -164,11 +189,10 @@ def delete_rotation(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Rotación non atopada"
         )
-    lote_id = rotation.lote_id
-    was_active = rotation.data_fim is None
     session.delete(rotation)
-    session.commit()
-    if was_active:
-        recompute_parcela_actual_for_lote(session, lote_id)
+    try:
         session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        _handle_integrity_error(exc)
     return {"ok": True}

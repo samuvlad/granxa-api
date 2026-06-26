@@ -1,16 +1,22 @@
-from datetime import date, datetime, timezone
-from typing import Optional
+from datetime import date, datetime
 
-from sqlalchemy import Column, Date, ForeignKey
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    func,
+)
 from sqlmodel import Field, SQLModel
-
-
-def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class Sheep(SQLModel, table=True):
     __tablename__ = "sheep"
+    __table_args__ = (
+        CheckConstraint("sexo IN ('macho', 'femia')", name="ck_sheep_sexo"),
+        CheckConstraint("estado IN ('activo', 'vendido', 'morto')", name="ck_sheep_estado"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     crotal: str = Field(unique=True, index=True, max_length=30)
@@ -42,14 +48,21 @@ class Sheep(SQLModel, table=True):
             index=True,
         ),
     )
-    parcela_actual_id: int | None = Field(
-        default=None,
-        sa_column=Column(
-            ForeignKey("plots.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
 
     notas: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=now_utc)
-    updated_at: datetime = Field(default_factory=now_utc)
+    created_at: datetime = Field(
+        sa_column=Column(
+            "created_at",
+            DateTime(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+        )
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(
+            "updated_at",
+            DateTime(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+        )
+    )

@@ -1,4 +1,4 @@
-"""Tests do CRUD de /lotes/."""
+"""Tests do CRUD de /api/lotes/."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from tests.helpers import (
 
 
 def test_list_lotes_empty(client: TestClient) -> None:
-    res = client.get("/lotes/")
+    res = client.get("/api/lotes/")
     assert res.status_code == 200
     assert res.json() == []
 
@@ -25,26 +25,26 @@ def test_create_and_get_lote(client: TestClient) -> None:
     assert lote["notas"] == "notas iniciais"
     assert "created_at" in lote
 
-    res = client.get(f"/lotes/{lote['id']}")
+    res = client.get(f"/api/lotes/{lote['id']}")
     assert res.status_code == 200
     assert res.json()["name"] == "Lote 1 — Test"
 
 
 def test_create_lote_strips_name(client: TestClient) -> None:
-    res = client.post("/lotes/", json={"name": "  "})
+    res = client.post("/api/lotes/", json={"name": "  "})
     assert res.status_code == 422
 
 
 def test_create_lote_duplicate_name_409(client: TestClient) -> None:
     make_lote_via_api(client, "Lote duplicado")
-    res = client.post("/lotes/", json={"name": "Lote duplicado"})
+    res = client.post("/api/lotes/", json={"name": "Lote duplicado"})
     assert res.status_code == 409
 
 
 def test_update_lote(client: TestClient) -> None:
     lote = make_lote_via_api(client, "Lote orixinal")
     res = client.patch(
-        f"/lotes/{lote['id']}",
+        f"/api/lotes/{lote['id']}",
         json={"name": "Lote renomeado", "notas": "novas"},
     )
     assert res.status_code == 200
@@ -56,22 +56,22 @@ def test_update_lote(client: TestClient) -> None:
 def test_update_lote_duplicate_name_409(client: TestClient) -> None:
     a = make_lote_via_api(client, "A")
     b = make_lote_via_api(client, "B")
-    res = client.patch(f"/lotes/{b['id']}", json={"name": "A"})
+    res = client.patch(f"/api/lotes/{b['id']}", json={"name": "A"})
     assert res.status_code == 409
 
 
 def test_delete_lote_ok(client: TestClient) -> None:
     lote = make_lote_via_api(client, "Lote baleiro")
-    res = client.delete(f"/lotes/{lote['id']}")
+    res = client.delete(f"/api/lotes/{lote['id']}")
     assert res.status_code == 204
-    res = client.get(f"/lotes/{lote['id']}")
+    res = client.get(f"/api/lotes/{lote['id']}")
     assert res.status_code == 404
 
 
 def test_delete_lote_with_sheep_409(client: TestClient) -> None:
     lote = make_lote_via_api(client, "Lote con ovellas")
     make_sheep_via_api(client, "ES-TEST-1", lote_id=lote["id"])
-    res = client.delete(f"/lotes/{lote['id']}")
+    res = client.delete(f"/api/lotes/{lote['id']}")
     assert res.status_code == 409
     assert "ovellas" in res.json()["detail"]
 
@@ -86,7 +86,7 @@ def test_delete_lote_with_rotations_409(client: TestClient) -> None:
         data_inicio="2026-01-01T00:00:00",
         data_fim="2026-02-01T00:00:00",
     )
-    res = client.delete(f"/lotes/{lote['id']}")
+    res = client.delete(f"/api/lotes/{lote['id']}")
     assert res.status_code == 409
     assert "rotacións" in res.json()["detail"]
 
@@ -95,7 +95,7 @@ def test_list_lotes_ordered_by_name(client: TestClient) -> None:
     make_lote_via_api(client, "B-lote")
     make_lote_via_api(client, "A-lote")
     make_lote_via_api(client, "C-lote")
-    res = client.get("/lotes/")
+    res = client.get("/api/lotes/")
     assert res.status_code == 200
     names = [l["name"] for l in res.json()]
     assert names == ["A-lote", "B-lote", "C-lote"]

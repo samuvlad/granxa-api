@@ -39,58 +39,101 @@ def test_rotation_recomputes_parcela_on_create(client: TestClient) -> None:
         data_inicio="2026-01-01T00:00:00",
     )
 
-    res = client.get(f"/sheep/{sheep['id']}")
+    res = client.get(f"/api/sheep/{sheep['id']}")
     assert res.json()["parcela_actual_id"] == plot["id"]
 
 
-def test_two_active_rotations_same_lote_allowed(client: TestClient) -> None:
-    """O modelo permite varias rotacións activas; a 'activa' é a máis recente."""
+def test_two_active_rotations_same_lote_rejected(client: TestClient) -> None:
+    """A BD rexeita (409) unha segunda rotación activa para o mesmo lote."""
     p1 = make_plot_via_api(client, "P1")
     p2 = make_plot_via_api(client, "P2")
     lote = make_lote_via_api(client, "L")
-    rot1 = make_rotation_via_api(
-        client,
-        parcela_id=p1["id"],
-        lote_id=lote["id"],
-        data_inicio="2026-01-01T00:00:00",
-    )
-    rot2 = make_rotation_via_api(
-        client,
-        parcela_id=p2["id"],
-        lote_id=lote["id"],
-        data_inicio="2026-02-01T00:00:00",
-    )
-    assert rot1["data_fim"] is None
-    assert rot2["data_fim"] is None
-
-
-def test_close_active_rotation_picks_next(client: TestClient) -> None:
-    p1 = make_plot_via_api(client, "P1")
-    p2 = make_plot_via_api(client, "P2")
-    lote = make_lote_via_api(client, "L")
-
-    rot1 = make_rotation_via_api(
-        client,
-        parcela_id=p1["id"],
-        lote_id=lote["id"],
-        data_inicio="2026-01-01T00:00:00",
-    )
     make_rotation_via_api(
         client,
-        parcela_id=p2["id"],
+        parcela_id=p1["id"],
         lote_id=lote["id"],
-        data_inicio="2026-02-01T00:00:00",
+        data_inicio="2026-01-01T00:00:00",
+    )
+    res = client.post(
+        "/api/rotations/",
+        json={
+            "parcela_id": p2["id"],
+            "lote_id": lote["id"],
+            "data_inicio": "2026-02-01T00:00:00",
+        },
+    )
+    assert res.status_code == 409
+
+
+def test_close_active_rotation_clears_parcela(client: TestClient) -> None:
+    """Ao pechar a única rotación activa, a ovella queda sen parcela."""
+    p1 = make_plot_via_api(client, "P1")
+    lote = make_lote_via_api(client, "L")
+
+    rot1 = make_rotation_via_api(
+        client,
+        parcela_id=p1["id"],
+        lote_id=lote["id"],
+        data_inicio="2026-01-01T00:00:00",
     )
     sheep = make_sheep_via_api(client, "ES-Y", lote_id=lote["id"])
-    assert sheep["parcela_actual_id"] == p2["id"]
+    assert sheep["parcela_actual_id"] == p1["id"]
 
-    # Pechar a activa (p2). A ovella pasa a p1.
     res = client.patch(
-        f"/rotations/{rot1['id'] + 1}", json={"data_fim": "2026-02-15T00:00:00"}
+        f"/api/rotations/{rot1['id']}", json={"data_fim": "2026-02-15T00:00:00"}
     )
     assert res.status_code == 200
-    res = client.get(f"/sheep/{sheep['id']}")
-    assert res.json()["parcela_actual_id"] == p1["id"]
+    res = client.get(f"/api/sheep/{sheep['id']}")
+    assert res.json()["parcela_actual_id"] is None
+
+
+def test_overlapping_rotations_rejected(client: TestClient) -> None:
+    """O exclusion constraint rexeita rotacións solapadas do mesmo lote."""
+    p1 = make_plot_via_api(client, "P1")
+    p2 = make_plot_via_api(client, "P2")
+    lote = make_lote_via_api(client, "L")
+
+    make_rotation_via_api(
+        client,
+        parcela_id=p1["id"],
+        lote_id=lote["id"],
+        data_inicio="2026-01-01T00:00:00",
+        data_fim="2026-03-01T00:00:00",
+    )
+    res = client.post(
+        "/api/rotations/",
+        json={
+            "parcela_id": p2["id"],
+            "lote_id": lote["id"],
+            "data_inicio": "2026-02-01T00:00:00",
+            "data_fim": "2026-04-01T00:00:00",
+        },
+    )
+    assert res.status_code == 409
+
+
+def test_non_overlapping_rotations_ok(client: TestClient) -> None:
+    """Rotacións consecutivas (sen solapamento) do mesmo lote son válidas."""
+    p1 = make_plot_via_api(client, "P1")
+    p2 = make_plot_via_api(client, "P2")
+    lote = make_lote_via_api(client, "L")
+
+    make_rotation_via_api(
+        client,
+        parcela_id=p1["id"],
+        lote_id=lote["id"],
+        data_inicio="2026-01-01T00:00:00",
+        data_fim="2026-02-01T00:00:00",
+    )
+    res = client.post(
+        "/api/rotations/",
+        json={
+            "parcela_id": p2["id"],
+            "lote_id": lote["id"],
+            "data_inicio": "2026-02-01T00:00:00",
+        },
+    )
+    assert res.status_code == 201
 
 
 def test_lote_nome_not_accepted_anymore(client: TestClient) -> None:
@@ -98,7 +141,7 @@ def test_lote_nome_not_accepted_anymore(client: TestClient) -> None:
     p1 = make_plot_via_api(client, "P1")
     lote = make_lote_via_api(client, "L")
     res = client.post(
-        "/rotations/",
+        "/api/rotations/",
         json={
             "parcela_id": p1["id"],
             "lote_id": lote["id"],
@@ -127,7 +170,7 @@ def test_update_rotation_to_change_lote(client: TestClient) -> None:
     )
 
     res = client.patch(
-        f"/rotations/{rot['id']}",
+        f"/api/rotations/{rot['id']}",
         json={"lote_id": l2["id"], "parcela_id": p2["id"]},
     )
     assert res.status_code == 200
@@ -149,9 +192,9 @@ def test_delete_active_rotation_clears_parcela(client: TestClient) -> None:
     sheep = make_sheep_via_api(client, "ES-Z", lote_id=lote["id"])
     assert sheep["parcela_actual_id"] == p1["id"]
 
-    res = client.delete(f"/rotations/{rot['id']}")
+    res = client.delete(f"/api/rotations/{rot['id']}")
     assert res.status_code == 200
-    res = client.get(f"/sheep/{sheep['id']}")
+    res = client.get(f"/api/sheep/{sheep['id']}")
     assert res.json()["parcela_actual_id"] is None
 
 
@@ -159,7 +202,7 @@ def test_dates_validation(client: TestClient) -> None:
     p1 = make_plot_via_api(client, "P1")
     lote = make_lote_via_api(client, "L")
     res = client.post(
-        "/rotations/",
+        "/api/rotations/",
         json={
             "parcela_id": p1["id"],
             "lote_id": lote["id"],

@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     init_db: bool = False
+    db_echo: bool = False
+    run_migrations: bool = True
 
     class Config:
         env_file = ".env"

@@ -1,28 +1,36 @@
 """Fixtures de pytest para os tests de integración.
 
 Usa unha base de datos PostgreSQL/PostGIS separada (``granxa_maps_test``)
-para non contaminar os datos de desenvolvemento. As táboas créanse unha
-soa vez por sesión e, antes de cada test, vólvense ao estado baleiro.
+para non contaminar os datos de desenvolvemento. O esquema créase unha soa
+vez por sesión vía Alembic (non SQLModel.metadata.create_all) para probar
+exactamente o mesmo esquema que produción: constraints, exclusion
+constraints, triggers, columna xerada, etc. Entre tests, trúncanse as
+táboas en orde inversa de FK.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 # Configurar DATABASE_URL ANTES de importar a app para que `app.database.engine`
-# se construía contra a base de datos de test.
+# se constrúa contra a base de datos de test.
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+psycopg2://granxa:granxa@localhost:5432/granxa_maps_test",
 )
 os.environ.setdefault("INIT_DB", "0")
+os.environ.setdefault("DB_ECHO", "0")
 
 import psycopg2
 import pytest
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from sqlalchemy import text
+from sqlalchemy import text, make_url
 from sqlmodel import SQLModel, Session, create_engine
 from fastapi.testclient import TestClient
+
+from alembic import command
+from alembic.config import Config as AlembicConfig
 
 # Estes imports deben ir DESPOIS de establecer DATABASE_URL.
 from app.config import settings  # noqa: E402
@@ -32,14 +40,24 @@ from app.main import app  # noqa: E402
 
 
 TEST_DB_NAME = settings.database_url.rsplit("/", 1)[-1]
+ALEMBIC_INI = str(Path(__file__).resolve().parent.parent / "alembic.ini")
+
+# Parsear a DATABASE_URL para obter host/port/user/password (funciona tanto
+# no contedor da API como no host de desenvolvemento).
+_url = make_url(settings.database_url)
+DB_HOST = _url.host or "localhost"
+DB_PORT = _url.port or 5432
+DB_USER = _url.username or "granxa"
+DB_PASSWORD = _url.password or "granxa"
 
 
 def _admin_conn():
     return psycopg2.connect(
-        host="localhost",
+        host=DB_HOST,
+        port=DB_PORT,
         dbname="postgres",
-        user="granxa",
-        password="granxa",
+        user=DB_USER,
+        password=DB_PASSWORD,
     )
 
 
@@ -53,25 +71,37 @@ def _ensure_test_db() -> None:
     conn.close()
 
     conn = psycopg2.connect(
-        host="localhost",
+        host=DB_HOST,
+        port=DB_PORT,
         dbname=TEST_DB_NAME,
-        user="granxa",
-        password="granxa",
+        user=DB_USER,
+        password=DB_PASSWORD,
     )
     conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     cur = conn.cursor()
     cur.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+    cur.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
     conn.close()
 
 
 _ensure_test_db()
 
 
+def _run_alembic_upgrade_head() -> None:
+    cfg = AlembicConfig(ALEMBIC_INI)
+    command.upgrade(cfg, "head")
+
+
 @pytest.fixture(scope="session")
 def engine():
     test_engine = create_engine(settings.database_url)
+    # Limpar calquera estado previo (táboas + alembic_version).
     SQLModel.metadata.drop_all(test_engine)
-    SQLModel.metadata.create_all(test_engine)
+    with test_engine.connect() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+        conn.commit()
+    # Crear o esquema vía Alembic para probar constraints, triggers, etc.
+    _run_alembic_upgrade_head()
     yield test_engine
     test_engine.dispose()
 
