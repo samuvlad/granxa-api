@@ -1,3 +1,4 @@
+from .auth import LoginRequest, Token, UserRead
 from .lote import LoteCreate, LoteRead, LoteSummary, LoteUpdate
 from .plot import PlotCreate, PlotRead, PlotUpdate
 from .rotation import RotationCreate, RotationRead, RotationUpdate
@@ -8,6 +9,7 @@ __all__ = [
     "LoteRead",
     "LoteSummary",
     "LoteUpdate",
+    "LoginRequest",
     "PlotCreate",
     "PlotRead",
     "PlotUpdate",
@@ -17,4 +19,6 @@ __all__ = [
     "SheepCreate",
     "SheepRead",
     "SheepUpdate",
+    "Token",
+    "UserRead",
 ]

@@ -11,6 +11,7 @@ táboas en orde inversa de FK.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Configurar DATABASE_URL ANTES de importar a app para que `app.database.engine`
@@ -21,11 +22,16 @@ os.environ.setdefault(
 )
 os.environ.setdefault("INIT_DB", "0")
 os.environ.setdefault("DB_ECHO", "0")
+os.environ.setdefault(
+    "JWT_SECRET", "test-jwt-secret-not-secure-but-stable-across-runs"
+)
 
+import bcrypt
+import jwt
 import psycopg2
 import pytest
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from sqlalchemy import text, make_url
+from sqlalchemy import make_url, text
 from sqlmodel import SQLModel, Session, create_engine
 from fastapi.testclient import TestClient
 
@@ -35,12 +41,15 @@ from alembic.config import Config as AlembicConfig
 # Estes imports deben ir DESPOIS de establecer DATABASE_URL.
 from app.config import settings  # noqa: E402
 from app.database import engine as real_engine, get_session  # noqa: E402
-from app.models import Lote, Plot, Rotation, Sheep  # noqa: E402,F401
+from app.models import Lote, Plot, Rotation, Sheep, User  # noqa: E402,F401
 from app.main import app  # noqa: E402
 
 
 TEST_DB_NAME = settings.database_url.rsplit("/", 1)[-1]
 ALEMBIC_INI = str(Path(__file__).resolve().parent.parent / "alembic.ini")
+
+TEST_USERNAME = "test-user"
+TEST_PASSWORD = "test-password-123"
 
 # Parsear a DATABASE_URL para obter host/port/user/password (funciona tanto
 # no contedor da API como no host de desenvolvemento).
@@ -122,8 +131,32 @@ def session(engine) -> Session:
 
 
 @pytest.fixture
-def client(engine):
-    """TestClient coa sesión da base de datos de test inxectada."""
+def auth_token(engine) -> str:
+    """Crea o usuario de test e devolve un JWT válido."""
+    with Session(engine) as session:
+        user = User(
+            username=TEST_USERNAME,
+            hashed_password=bcrypt.hashpw(
+                TEST_PASSWORD.encode("utf-8"), bcrypt.gensalt()
+            ).decode("utf-8"),
+        )
+        session.add(user)
+        session.commit()
+
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": TEST_USERNAME,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=60)).timestamp()),
+    }
+    return jwt.encode(
+        payload, settings.jwt_secret, algorithm=settings.jwt_algorithm
+    )
+
+
+@pytest.fixture
+def client(engine, auth_token):
+    """TestClient con sesión de test e cabeceira ``Authorization`` inxectada."""
 
     def _get_test_session():
         with Session(engine) as s:
@@ -133,6 +166,21 @@ def client(engine):
     # Non usamos `with TestClient(app)` para evitar que se execute o lifespan
     # (que falaría co motor real). As táboas xa están creadas polo fixture
     # `engine` da sesión.
+    test_client = TestClient(app)
+    test_client.headers["Authorization"] = f"Bearer {auth_token}"
+    yield test_client
+    app.dependency_overrides.pop(get_session, None)
+
+
+@pytest.fixture
+def anon_client(engine):
+    """TestClient con sesión de test pero sen autenticación (login + 401)."""
+
+    def _get_test_session():
+        with Session(engine) as s:
+            yield s
+
+    app.dependency_overrides[get_session] = _get_test_session
     test_client = TestClient(app)
     yield test_client
     app.dependency_overrides.pop(get_session, None)

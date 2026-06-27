@@ -8,7 +8,26 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.models import Lote, Plot, Rotation, Sheep
+from app.models import Lote, Plot, Rotation, Sheep, User
+from app.services.auth import hash_password
+
+
+def make_user(
+    session: Session,
+    username: str,
+    password: str = "test-password-123",
+    is_active: bool = True,
+) -> User:
+    """Crea un usuario directamente na BD (evita pasar polo endpoint de login)."""
+    user = User(
+        username=username,
+        hashed_password=hash_password(password),
+        is_active=is_active,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
 
 
 # GeoJSON dun polígono cadrado simple en Galicia.

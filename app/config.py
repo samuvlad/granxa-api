@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     init_db: bool = False
     db_echo: bool = False
     run_migrations: bool = True
+    jwt_secret: str = "change-me-in-production-please-this-is-not-secure"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 8
 
     class Config:
         env_file = ".env"

@@ -1,13 +1,15 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.routers.auth import router as auth_router
 from app.routers.lotes import router as lotes_router
 from app.routers.plots import router as plots_router
 from app.routers.rotation import router as rotations_router
 from app.routers.sheep import router as sheep_router
+from app.services.auth import get_current_user
 
 
 @asynccontextmanager
@@ -37,10 +39,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(plots_router, prefix="/api")
-app.include_router(sheep_router, prefix="/api")
-app.include_router(rotations_router, prefix="/api")
-app.include_router(lotes_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
+app.include_router(
+    plots_router, prefix="/api", dependencies=[Depends(get_current_user)]
+)
+app.include_router(
+    sheep_router, prefix="/api", dependencies=[Depends(get_current_user)]
+)
+app.include_router(
+    rotations_router, prefix="/api", dependencies=[Depends(get_current_user)]
+)
+app.include_router(
+    lotes_router, prefix="/api", dependencies=[Depends(get_current_user)]
+)
 
 
 @app.get("/api/health")
