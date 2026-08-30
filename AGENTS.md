@@ -11,7 +11,7 @@ Camiño recomendado: Docker.
 ```bash
 docker network create granxa-net      # unha soa vez, ver "Rede Docker" abaixo
 docker compose up --build             # DB en :5433, API en :8000, Swagger en /docs
-make up / make logs / make shell / make down / make clean
+make up / make logs / make api-shell / make down / make clean
 make migrate                          # alembic upgrade head dentro do contedor da API
 make test                             # pytest dentro do contedor da API
 ```
@@ -26,7 +26,7 @@ O `Dockerfile` instala os paquetes de sistema `libgdal-dev libgeos-dev libproj-d
 
 ### 1. Todos os endpoints van baixo `/api`
 
-Os routers móntanse con `prefix="/api"` en `app/main.py` (`plots`, `sheep`, `rotations`, `lotes` e o de saúde). Cando engadas un test ou modifiques unha ruta, lembra que o path debe incluír `/api/...` — se non, `pytest` devolverá 404. Axuda: `tests/helpers.py` centraliza as chamadas comúns (`make_plot_via_api`, `make_lote_via_api`, `make_sheep_via_api`, `make_rotation_via_api`).
+Os routers móntanse con `prefix="/api"` en `app/main.py` (`auth`, `plots`, `sheep`, `rotations`, `lotes` e o de saúde). Cando engadas un test ou modifiques unha ruta, lembra que o path debe incluír `/api/...` — se non, `pytest` devolverá 404. Axuda: `tests/helpers.py` centraliza as chamadas comúns (`make_plot_via_api`, `make_lote_via_api`, `make_sheep_via_api`, `make_rotation_via_api`).
 
 ### 2. `granxa-net` é unha rede Docker externa
 
@@ -45,6 +45,7 @@ O contedor da API únese a esta rede para falar con outros servizos do ecosistem
 - O esquema créase **unha vez por sesión vía `alembic upgrade head`** (non `SQLModel.metadata.create_all`) para probar exactamente o mesmo que produción: constraints, exclusion constraints, columna xerada `duracion`, triggers `updated_at`, etc. Entre tests, trúncanse as táboas en orde inversa de FK (autouse `_clean_tables`).
 - Usa `TestClient(app)` **sen** `with` para saltarse o `lifespan` (que tocaría o motor real). Non o cambies.
 - Sobreescribe `get_session` para usar o motor de test.
+- Tamén establece `JWT_SECRET` estable e crea un usuario de test co fixture `auth_token`; o fixture `client` inxecta a cabeceira `Authorization` automaticamente (o `anon_client`, non).
 
 Executar un test concreto: `docker compose exec api pytest tests/test_lotes.py -k delete_lote`.
 
@@ -60,7 +61,13 @@ Non hai `recompute_parcela_actual_for_lote` (a columna xa non existe); a derivac
 
 ### 6. As novas táboas de SQLModel hai que exportalas
 
-`alembic/env.py` importa `from app.models import Lote, Plot, Rotation, Sheep` para rexistrar as táboas. Calquera modelo novo debe reexportarse en `app/models/__init__.py`; se non, Alembic non xerará nin aplicará a súa migración.
+`alembic/env.py` importa `from app.models import Lote, Plot, Rotation, Sheep` para rexistrar as táboas (`User` rexístrase tamén vía `app/models/__init__.py`). Calquera modelo novo debe reexportarse en `app/models/__init__.py`; se non, Alembic non xerará nin aplicará a súa migración.
+
+### 7. Autenticación JWT obrigatoria
+
+O servizo ten auth JWT desde a migración `0002_users` (táboa `users`; `0003_user_email` engade a columna `email`). `POST /api/auth/login` devolve un `access_token`; `GET /api/auth/me` devolve o usuario actual. Crea usuarios co script `scripts/create_user.py` ou directamente na BD (hash bcrypt).
+
+**Todos os routers de dominio** (`plots`, `sheep`, `rotations`, `lotes`) montan `dependencies=[Depends(get_current_user)]` en `app/main.py` — sen `Authorization: Bearer <token>` responden 401. Só `auth` e `/api/health` son públicos. Os novos endpoints baixo eses routers quedan cubertos automaticamente; se creas un router novo, engade a dependencia ti.
 
 ## Variables de contorno
 
@@ -74,6 +81,9 @@ Pydantic Settings le desde `.env`. Os nomes dos campos van en minúsculas no mod
 | `INIT_DB`        | `0` (`False`)                                                               | Se vale `1`, o `lifespan` de FastAPI chama `SQLModel.metadata.create_all` ao arrancar. Só para tinkering en desenvolvemento — evita Alembic. |
 | `DB_ECHO`        | `0` (`False`)                                                               | Activa o log de SQL de SQLAlchemy (`app/database.py`). |
 | `RUN_MIGRATIONS` | `1` (`True`)                                                                | Se vale `1`, o `entrypoint.sh` executa `alembic upgrade head` ao arrancar. En prod con múltiples réplicas, desactívao e migra nun init container/job. |
+| `JWT_SECRET`     | `change-me-in-production-please-this-is-not-secure`                          | Secret para asinar os JWTs. Cambia en produción (ex.: `openssl rand -hex 32`). |
+| `JWT_ALGORITHM`  | `HS256`                                                                      | Algoritmo de firma dos tokens. |
+| `JWT_EXPIRE_MINUTES` | `480`                                                                    | Validez do `access_token` en minutos (8 h). |
 
 ## Outras cousas que paga a pena saber
 
@@ -83,6 +93,6 @@ Pydantic Settings le desde `.env`. Os nomes dos campos van en minúsculas no mod
 - **O borrado de lote está restrinxido**: `DELETE /api/lotes/{id}` devolve 409 se o lote ten ovellas ou rotacións (`app/routers/lotes.py`).
 - **O borrado de parcela está restrinxido**: `DELETE /api/plots/{id}` devolve 409 se a parcela ten rotacións (`app/routers/plots.py`). Ademais a FK `rotations.parcela_id` é `ON DELETE RESTRICT`, así que un borrado fóra da API tampouco pode destruír histórico de rotacións.
 - **Integridade relacional na BD**: timestamps son `timestamptz` con `DEFAULT now()` e un trigger `BEFORE UPDATE` (`set_updated_at()`) actualiza `updated_at` automaticamente en todas as táboas — non se toca manualmente nos routers. `sheep.sexo`/`sheep.estado` teñen `CHECK` constraints; `plots.name` e `lotes.name` son `UNIQUE`. As violacións destas constraints cáptanse como `IntegrityError` → 409/422 nos routers.
-- **Migracións**: `alembic/versions/` contén unha soa revisión inicial (`0001_initial`) escrita a man. As novas revisións deben encadear desde a cabeza actual. Corre `alembic history` para ver a cadea.
-- **Layout**: `app/{config,database,main}.py`, `app/{models,routers,schemas,services,utils}/`, `alembic/`, `tests/`. `app/services/` polo de agora só contén `lotes.py`; a lóxica de dominio que non atangue a un único recurso vive aí.
+- **Migracións**: `alembic/versions/` contén tres revisións: `0001_initial_schema` (esquema base, escrita a man), `0002_users` (táboa `users`) e `0003_user_email` (columna `email`). As novas revisións deben encadear desde a cabeza actual (`0003_user_email`). Corre `alembic history` para ver a cadea.
+- **Layout**: `app/{config,database,main}.py`, `app/{models,routers,schemas,services,utils}/`, `alembic/`, `tests/`. `app/services/` contén `lotes.py` e `auth.py`; a lóxica de dominio que non atangue a un único recurso vive aí.
 - **Helpers**: `tests/helpers.py` expón factorías `make_*_via_api` que crean entidades a través da API. Prefireas antes que escribir payloads inline.

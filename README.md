@@ -25,7 +25,7 @@ Atallos con `make`:
 make up        # docker compose up --build
 make down      # docker compose down
 make logs      # logs en seguimento
-make shell     # bash dentro do contedor da API
+make api-shell # bash dentro do contedor da API
 make migrate   # aplicar migracións
 make test      # correr pytest
 make clean     # parar e borrar volumes (DB incluída)
