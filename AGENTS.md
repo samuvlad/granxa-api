@@ -40,7 +40,7 @@ O contedor da API únese a esta rede para falar con outros servizos do ecosistem
 
 ### 3. Particularidades do conftest de tests (`tests/conftest.py`)
 
-- Establece `DATABASE_URL=postgresql+psycopg2://granxa:granxa@localhost:5432/granxa_maps_test` **antes** de importar `app.*` para que `app.database.engine` se constrúa contra a base de datos de test. Non reordenes os imports. Os parámetros de conexión (host/port/user/password) obtéñense parseando `DATABASE_URL`, así funciona tanto no contedor da API (`db:5432`) como no host (`localhost:5433`).
+- Establece `DATABASE_URL=.../granxa_maps_test` **antes** de importar `app.*` para que `app.database.engine` se constrúa contra a base de datos de test. Non reordenes os imports. Non usa `setdefault`: **forza** a BD de test reescribindo só o nome da base sobre a URL existente (host/port/user/password conservanse, con `render_as_string(hide_password=False)` porque `str()` enmascara o contrasinal). Isto é deliberado: docker-compose inxecta `DATABASE_URL=.../granxa_maps` no contedor da API, e un `setdefault` faría que os tests (drop_all + truncate) borrasen os datos de desenvolvemento. Un `assert` aborta se a BD resultante non é `granxa_maps_test`.
 - Crea automaticamente `granxa_maps_test` e activa as extensións `postgis` e `btree_gist` como usuario `granxa:granxa`.
 - O esquema créase **unha vez por sesión vía `alembic upgrade head`** (non `SQLModel.metadata.create_all`) para probar exactamente o mesmo que produción: constraints, exclusion constraints, columna xerada `duracion`, triggers `updated_at`, etc. Entre tests, trúncanse as táboas en orde inversa de FK (autouse `_clean_tables`).
 - Usa `TestClient(app)` **sen** `with` para saltarse o `lifespan` (que tocaría o motor real). Non o cambies.

@@ -160,6 +160,62 @@ def test_lote_updated_at_bumped_by_trigger(client: TestClient, session: Session)
 
 
 # ---------------------------------------------------------------------------
+# PATCH de xeometría (rexresión: data["geometry"] debe convertirse)
+# ---------------------------------------------------------------------------
+
+
+def test_patch_plot_geometry_updates(client: TestClient) -> None:
+    plot = make_plot_via_api(client, "Plot xeometría")
+    new_geometry = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-8.55, 42.55],
+                [-8.53, 42.55],
+                [-8.53, 42.56],
+                [-8.55, 42.56],
+                [-8.55, 42.55],
+            ]
+        ],
+    }
+    res = client.patch(f"/api/plots/{plot['id']}", json={"geometry": new_geometry})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["geometry"]["coordinates"] == new_geometry["coordinates"]
+    assert body["area_m2"] != plot["area_m2"]
+    assert body["perimeter_m"] != plot["perimeter_m"]
+
+
+def test_patch_plot_geometry_feature(client: TestClient) -> None:
+    plot = make_plot_via_api(client, "Plot xeometría Feature")
+    res = client.patch(
+        f"/api/plots/{plot['id']}",
+        json={
+            "geometry": {
+                "type": "Feature",
+                "properties": {},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-8.55, 42.55],
+                            [-8.52, 42.55],
+                            [-8.52, 42.56],
+                            [-8.55, 42.56],
+                            [-8.55, 42.55],
+                        ]
+                    ],
+                },
+            }
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["geometry"]["type"] == "Polygon"
+    assert body["area_m2"] != plot["area_m2"]
+
+
+# ---------------------------------------------------------------------------
 # PATCH con ``notes: null`` setea a NULL (semántica exclude_unset)
 # ---------------------------------------------------------------------------
 

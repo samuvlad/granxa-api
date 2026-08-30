@@ -14,12 +14,30 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# Configurar DATABASE_URL ANTES de importar a app para que `app.database.engine`
-# se constrúa contra a base de datos de test.
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql+psycopg2://granxa:granxa@localhost:5432/granxa_maps_test",
+from sqlalchemy import make_url
+
+_DEFAULT_URL = "postgresql+psycopg2://granxa:granxa@localhost:5432/granxa_maps"
+TEST_DB_NAME = "granxa_maps_test"
+
+# Forzar SEMPRE a base de datos de test ANTES de importar a app para que
+# `app.database.engine` se constrúa contra ela. Reescríbese só o nome da BD
+# sobre a URL existente para conservar host/porto/credenciais (no contedor da
+# API é `db:5432`, no host é `localhost:5433`). Un `setdefault` non serve:
+# docker-compose inxecta DATABASE_URL=.../granxa_maps no contedor, e os tests
+# (drop_all + truncate do conftest) borrarían os datos de desenvolvemento.
+_base_url = os.environ.get("DATABASE_URL") or _DEFAULT_URL
+# `str()` enmascara o contrasinal (***); usamos render_as_string(hide_password=False).
+_test_url = make_url(_base_url).set(database=TEST_DB_NAME).render_as_string(
+    hide_password=False
 )
+os.environ["DATABASE_URL"] = _test_url
+
+# Salvagarda: nunca correr os tests contra unha BD que non sexa a de test.
+assert make_url(os.environ["DATABASE_URL"]).database == TEST_DB_NAME, (
+    "Os tests só poden correr contra a BD de test "
+    f"({TEST_DB_NAME}), non contra {os.environ['DATABASE_URL']}"
+)
+
 os.environ.setdefault("INIT_DB", "0")
 os.environ.setdefault("DB_ECHO", "0")
 os.environ.setdefault(
@@ -31,7 +49,7 @@ import jwt
 import psycopg2
 import pytest
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from sqlalchemy import make_url, text
+from sqlalchemy import text
 from sqlmodel import SQLModel, Session, create_engine
 from fastapi.testclient import TestClient
 
@@ -45,7 +63,6 @@ from app.models import Lote, Plot, Rotation, Sheep, User  # noqa: E402,F401
 from app.main import app  # noqa: E402
 
 
-TEST_DB_NAME = settings.database_url.rsplit("/", 1)[-1]
 ALEMBIC_INI = str(Path(__file__).resolve().parent.parent / "alembic.ini")
 
 TEST_USERNAME = "test-user"

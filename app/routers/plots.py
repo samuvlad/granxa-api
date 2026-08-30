@@ -113,6 +113,7 @@ def update_plot(
 
     if "geometry" in data and data["geometry"] is not None:
         geometry = geojson_to_geometry(data["geometry"])
+        data["geometry"] = geometry
         data["area_m2"] = calculate_area_m2(geometry)
         data["perimeter_m"] = calculate_perimeter_m(geometry)
 
