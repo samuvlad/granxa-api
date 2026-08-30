@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production-please-this-is-not-secure"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 8
+    cors_origins: str = "http://localhost:3000,http://192.168.1.11:3000"
 
     class Config:
         env_file = ".env"

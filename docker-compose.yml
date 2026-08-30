@@ -21,6 +21,7 @@ services:
     container_name: granxa-maps-api
     environment:
       DATABASE_URL: postgresql+psycopg2://granxa:granxa@db:5432/granxa_maps
+      RELOAD: "1"
     depends_on:
       db:
         condition: service_healthy
